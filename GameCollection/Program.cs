@@ -1,8 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using GameCollection.Extras;
+using GameCollection.PongGame;
+using Database = GameCollection.Extras.NonSqlGameDatabase;
 
 namespace GameCollection
 {
@@ -10,6 +8,9 @@ namespace GameCollection
     {
         static void Main(string[] args)
         {
+            GameLog.createLog();
+            Database.setupConnection();
+            Pong.run().Wait();
         }
     }
 }
