@@ -13,7 +13,7 @@ namespace GameCollection.Extras
     {
         public static double clamp(double min, double max,  double value) => Math.Min(Math.Max(value, min), max);
         public static bool inRange(double min, double max, double value) => value > min && value < max;
-        public static bool inRadius(double mid, double rad, double value) => Math.Abs(mid - value) < rad;
+        public static bool inRadius(double mid, double rad, double value) => abs(mid - value) < rad;
         public static int max(int a, int b) => a  > b ? a : b;
         public static int min(int a, int b) => a < b ? a : b;
         public static int abs(int a) => a * sign(a);
@@ -93,59 +93,48 @@ namespace GameCollection.Extras
     
     static class GameScreen
     {
-        static Dictionary<IntegerCoord, char> keepList = new Dictionary<IntegerCoord, char>();
-        static Dictionary<IntegerCoord, char> writeList = new Dictionary<IntegerCoord, char>();
-        static Dictionary<IntegerCoord, char> clearList = new Dictionary<IntegerCoord, char>();n
-
-        public static IntegerCoord viewSize;
+        static Queue<IntegerCoord> clearQueue = new Queue<IntegerCoord>();
+        static char[][] output = Array.Empty<char[]>();
+        static char get(IntegerCoord pos) => output[pos.y][pos.x];
+        static void set(IntegerCoord pos, char value) => output[pos.y][pos.x] = value;
+        
+        static void clearOutput()
+        {
+            output = Enumerable.Repeat(viewSize.x, viewSize.y).Select(x => Enumerable.Repeat(' ', x).ToArray()).ToArray();
+        }
+        public static void changeViewSize(IntegerCoord size)
+        {
+            viewSize =  size;
+            clearOutput();
+        }
+        static IntegerCoord viewSize;
         static int windowWidth => Console.WindowWidth;
         static int windowHeight => Console.WindowHeight;
         static IntegerCoord offset => (windowSize - viewSize) / 2; 
         
         public static async Task writeAsync() => await Task.Run(write);
-
-        public static void clearAll() => Console.Clear();
+        public static void clearAll() 
+        {
+            clearOutput();
+            Console.Clear();
+        }
         public static void clear()
         {
-            foreach (var screenChar in clearList)
-                writeBlank(screenChar.Key, screenChar.Value);
-            
-            Console.SetCursorPosition(0,0);
+            while (clearQueue.Count > 0)
+                set(clearQueue.Dequeue(), ' ');
         }
         public static void write()
         {
             // <TEMP>
             Console.CursorTop = 1;
-            writeText($"{windowSize} : {viewSize}");
+            writeText($" ");
             // </TEMP>
+
+            string padding = new string(' ', offset.x);
+            Console.CursorTop = offset.y;
+            Console.Out.WriteAsync(string.Join(Environment.NewLine, output.Select(chars => padding + string.Concat(chars))));
             
             clear();
-
-            foreach (var gameChar in keepList)
-                writeChar(gameChar.Key, gameChar.Value);
-
-            foreach (var gameChar in writeList)
-                writeChar(gameChar.Key, gameChar.Value);
-
-            clearList = writeList;
-            writeList = new Dictionary<IntegerCoord, char>();
-        }
-        static void writeChar(IntegerCoord pos, char c)
-        {
-
-            if (pos.x >= windowWidth || pos.y >= windowHeight)
-            {
-                GameLog.log($"{pos} is outside of the screen {windowWidth} by {windowHeight}");
-                return;
-            }
-                
-            Console.SetCursorPosition(pos.x, pos.y);
-            Console.Write(c);
-        }
-        static void writeBlank(IntegerCoord pos, char c)
-        {
-            Console.SetCursorPosition(pos.x, pos.y);
-            Console.Write(' ');
         }
 
         public static bool cursorVisible
@@ -159,16 +148,14 @@ namespace GameCollection.Extras
             set => Console.SetWindowSize(value.x, value.y);
         }
 
-        public static void queueAndKeep(IntegerCoord pos, char c) =>
-            keepList.Add(pos + offset, c);
+        public static void queueAndKeep(IntegerCoord pos, char c) => set(pos, c);
         public static void queue(IntegerCoord pos, char c)
         {
-            if (!clearList.TryGetValue(pos + offset, out char c2) || c != c2)
-                writeList.Add(pos + offset, c);
-            
-            clearList.Remove(pos + offset);
+            set(pos, c);
+            clearQueue.Enqueue(pos);
         }
 
+        public static void setHight(int y) => Console.CursorTop = y + offset.y;
         public static void newLine() => Console.WriteLine();
         public static void newLine(int count) => Console.Write(string.Concat(Enumerable.Repeat(Environment.NewLine, count)));
         public static void writeText(string line, bool centred = true, bool newLine = true)
@@ -204,8 +191,12 @@ namespace GameCollection.Extras
             string topText = $"Creation Date: {DateTime.Now.ToShortDateString()}" + Environment.NewLine;
             writer.Write(topText);
         }
-        
-        public static async Task log(string message) => await writer.WriteAsync($"{DateTime.Now.ToShortTimeString()}: {message}" + Environment.NewLine);
+
+        public static async Task log(string message)
+        {
+            await writer.WriteAsync($"{DateTime.Now.ToShortTimeString()}: {message}" + Environment.NewLine);
+            await writer.FlushAsync();
+        }
     }
     
     static class SqlGameDatabase
@@ -342,50 +333,62 @@ namespace GameCollection.Extras
                 Thread.Sleep(10);
             
             locked = true;
-            using (BinaryReader reader = new BinaryReader(File.Open($"{tableName}.bin", FileMode.Open)))
+            using (StreamReader reader = new StreamReader(File.Open($"{tableName}.txt", FileMode.Open)))
             {
                 try
                 {
-                    while (reader.BaseStream.CanRead)
+                    while (true)
                     {
-                        int score = reader.ReadInt32();
-                        string name = reader.ReadString();
-                        DateTime date = DateTime.FromBinary(reader.ReadInt64());
+                        if (reader.ReadLine() != "RECORD") break;
+                        int score = int.Parse(reader.ReadLine());
+                        string name = reader.ReadLine();
+                        DateTime date = DateTime.Parse(reader.ReadLine());
                         table.addScore(score, name, date);
                     }
                 }
-                catch (EndOfStreamException e) {}
+                catch (Exception e)
+                {
+                    GameLog.log(e.Message);
+                    
+                    GameScreen.newLine(5);
+                    GameScreen.writeText("An error occured while loading leaderboard data");
+                    GameScreen.writeText("Please edit or delete the leaderboard file");
+                    GameScreen.newLine(5);
+                    
+                    Thread.Sleep(2000);
+                }
             }
             locked = false;
             return table;
         }
-        static bool tableExist(string tableName) => File.Exists($"{tableName}.bin");
+        static bool tableExist(string tableName) => File.Exists($"{tableName}.txt");
         static void saveRecord(string tableName, Table.Record record)
         {
             while (locked)
                 Thread.Sleep(10);
             
             locked = true;
-            using (BinaryWriter writer = new BinaryWriter(File.Open($"{tableName}.bin", FileMode.Append)))
+            using (StreamWriter writer = new StreamWriter(File.Open($"{tableName}.txt", FileMode.Append)))
             {
-                writer.Write(record.score);
-                writer.Write(record.name);
-                writer.Write(record.date.ToBinary());
+                writer.WriteLine("RECORD");
+                writer.WriteLine(record.score.ToString());
+                writer.WriteLine(record.name);
+                writer.WriteLine(record.date.ToLongDateString());
             }
             locked = false;
         }
         
         public static bool trySetupLeaderboard(string tableName)
         {
-            if (File.Exists($"{tableName}.bin"))
+            if (File.Exists($"{tableName}.txt"))
                 return false;
             
-            File.Create($"{tableName}.bin");
+            File.Create($"{tableName}.txt");
             return true;
         }
         public static bool tryGetHighscores(string tableName, int count, out List<(int score, string name, DateTime date)> results)
         {
-            results = null;
+            results = new List<(int score, string name, DateTime date)>();
             if (!tableExist(tableName))
                 return false;
 

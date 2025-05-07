@@ -31,10 +31,12 @@ namespace GameCollection.PongGame
             double size;
             double halfSize => size / 2;
             double x, y, yVelocity;
+            int addScore;
 
-            public Paddle(double xPosition, double paddleSize = 0.25)
+            public Paddle(double xPosition, bool addsScore, double paddleSize = 0.25)
             {
                 size = paddleSize; 
+                addScore = addsScore ? 1 : 0;
                 x = xPosition;
                 y = 0.5;
             }
@@ -72,14 +74,6 @@ namespace GameCollection.PongGame
             
             public bool willCollideWith(Ball ball, ref int score)
             {
-                if (willCollideWith(ball) == false)
-                    return false;
-
-                score++;
-                return true;
-            }
-            public bool willCollideWith(Ball ball)
-            {
                 double xDiff = x - ball.currentPosition().x;
                 double t = xDiff / ball.currentVelocity().x;
                 
@@ -92,6 +86,7 @@ namespace GameCollection.PongGame
                     return false;
                 
                 ball.collideVertical(t, f(relative));
+                score += addScore;
                 return true;
             }
             static double f(double value) => value * value * value;
@@ -100,7 +95,7 @@ namespace GameCollection.PongGame
         class Ball : IDrawable
         {
             const double bounceSpeedup = 1.1; 
-            const double startAngleRange = Math.PI / 6;
+            const double startAngleRange = Math.PI / 102;
             const double maxStartVelocity = 0.0005 * targetLoopTime;
             const double minStartVelocity = 0.5 * maxStartVelocity;
 
@@ -119,8 +114,9 @@ namespace GameCollection.PongGame
                 }
 
                 double angle = startAngleRange * rng.NextDouble();
-                double speed = maxStartVelocity + rng.NextDouble() * (maxStartVelocity - minStartVelocity) * (2 * rng.Next(2) - 1);
-
+                double speed = maxStartVelocity + rng.NextDouble() * (maxStartVelocity - minStartVelocity);
+                speed *= 2 * rng.Next(2) - 1;
+                
                 velocity = new Coord(Math.Cos(angle) * speed, Math.Sin(angle) * speed);
             }
 

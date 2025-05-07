@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
@@ -13,6 +14,8 @@ namespace GameCollection.PongGame
     internal static partial class Pong
     {
         static Random rng = new Random();
+
+        const bool debug = true;
         
         const double paddleOffset = 0.2;
         const int targetLoopTime = 50;
@@ -24,10 +27,11 @@ namespace GameCollection.PongGame
         
         public static async Task run()
         {
-            GameScreen.viewSize = (2 * gameWidth + 4, gameHeight + 2);
+            GameScreen.changeViewSize((2 * gameWidth + 4, gameHeight + 2));
             GameScreen.cursorVisible = false;
             GameDatabase.trySetupLeaderboard("PongLeaderboard");
-            loadingScreen();
+            await loadingScreen();
+            title();
             
             ExitInfo exitInfo = ExitInfo.nullExitInfo();
             bool run = true;
@@ -39,9 +43,14 @@ namespace GameCollection.PongGame
                     case "StartGame":
                         exitInfo = await runGame();
                         break;
+                    
+                    case "StartTwo":
+                        exitInfo = await runTwoPlayerGame();
+                        break;
                         
                     case "Leaderboard":
                         leaderboardMenu();
+                        exitInfo = ExitInfo.nullExitInfo();
                         break;
                     
                     case "Exit":
@@ -53,11 +62,12 @@ namespace GameCollection.PongGame
                 }
             }
         }
+        
         static async Task<ExitInfo> runGame()
         {
             GameScreen.clearAll();
-            Paddle enemyPaddle = new Paddle(ratioXY - paddleOffset);
-            Paddle playerPaddle = new Paddle(paddleOffset);
+            Paddle playerPaddle = new Paddle(paddleOffset, true);
+            Paddle enemyPaddle = new Paddle(ratioXY - paddleOffset, false);
             Ball ball = new Ball((0.5 * ratioXY, 0.5));
             
             int score = 0;
@@ -72,32 +82,22 @@ namespace GameCollection.PongGame
             {
                 sw.Restart();
                 // Start drawing to screen
-                enemyPaddle.draw();
                 playerPaddle.draw();
+                enemyPaddle.draw();
                 ball.draw();
                 Task writeTask = GameScreen.writeAsync();
                 
-                // <TEMP>
-                // await writeTask;
-                // </TEMP>
-                
                 // Collision handling
-                bool collided = true;
-                while (collided)
-                {
-                    collided = false;
-                    collided |= enemyPaddle.willCollideWith(ball);
-                    collided |= playerPaddle.willCollideWith(ball, ref score);
-                    collided |= ball.willCollideWithBoundary();
-                }
+                handleCollisions(playerPaddle, enemyPaddle, ball, ref score);
                 
-                // Get inputs
-                getComputerInputs(ball, enemyPaddle, out bool enemyDown, out bool enemyStop);
-                getHumanInputs(out bool playerIgnore, out bool playerDown, out bool playerStop, out exit);
+                // Get inputsn
+                getHumanInputs(out bool playerDown, out bool playerStop, out bool playerIgnore, out exit);
+                getComputerInputs(ball, enemyPaddle, out bool enemyDown, out bool enemyStop, out bool enemyIgnore);
+                //getComputerInputs(ball, playerPaddle, out bool playerDown, out bool playerStop, out bool playerIgnore);
                 
                 // Move entities
-                enemyPaddle.update(false, enemyDown, enemyStop);
                 playerPaddle.update(playerIgnore, playerDown, playerStop);
+                enemyPaddle.update(enemyIgnore, enemyDown, enemyStop);
                 ball.update();
 
                 // Wait for write to finish
@@ -110,18 +110,94 @@ namespace GameCollection.PongGame
                         break;
 
                     ball = new Ball((0.5 * ratioXY, 0.5));
-                    score++;
+                    score += 10;
                 }
                 
                 // Get time taken
                 int elapsed = (int)sw.ElapsedMilliseconds;
-                //lastLoopTime = max(elapsed, targetLoopTime);
+                
                 // Wait until minimum time
                 if (elapsed < targetLoopTime)
                     await Task.Delay(targetLoopTime - elapsed); 
             }
 
             return ExitInfo.newExitInfo(!exit, score);
+        }
+        static async Task<ExitInfo> runTwoPlayerGame()
+        {
+            GameScreen.clearAll();
+            Paddle leftPaddle = new Paddle(paddleOffset, true);
+            Paddle rightPaddle = new Paddle(ratioXY - paddleOffset, true);
+            Ball ball = new Ball((0.5 * ratioXY, 0.5));
+            
+            int leftScore = 0;
+            int rightScore = 0;
+            Stopwatch sw =  new Stopwatch();
+            
+            drawBorder();
+            
+            // Main loop
+            bool exit = false;
+            while (exit == false)
+            {
+                sw.Restart();
+                // Start drawing to screen
+                leftPaddle.draw();
+                rightPaddle.draw();
+                ball.draw();
+                Task writeTask = GameScreen.writeAsync();
+
+                // Collision handling
+                handleCollisions(leftPaddle, rightPaddle, ball, ref leftScore, ref rightScore);
+
+                // Get inputs
+                getHumanPairInputs(out bool leftDown, out bool rightDown, out bool leftStop, out bool rightStop,
+                    out bool leftIgnore, out bool rightIgnore, out exit);
+
+                // Move entities
+                leftPaddle.update(leftIgnore, leftDown, leftStop);
+                rightPaddle.update(rightIgnore, rightDown, rightStop);
+                ball.update();
+
+                // Wait for write to finish
+                await writeTask;
+
+                GameScreen.setHight(-2);
+                GameScreen.writeText($"{leftScore} : {rightScore}");
+                
+                // Check win
+                if (ball.hasReachedEdge(out bool leftWon))
+                {
+                    ball = new Ball((0.5 * ratioXY, 0.5));
+                    if (leftWon)
+                        leftScore += 10;
+                    else
+                        rightScore += 10;
+                }
+
+                // Get time taken
+                int elapsed = (int)sw.ElapsedMilliseconds;
+                
+                // Wait until minimum time
+                if (elapsed < targetLoopTime)
+                    await Task.Delay(targetLoopTime - elapsed); 
+            }
+
+            return ExitInfo.nullExitInfo();
+        }
+
+        static void handleCollisions(Paddle playerPaddle, Paddle enemyPaddle, Ball ball, ref int score) =>
+            handleCollisions(playerPaddle, enemyPaddle, ball, ref score, ref score);
+        static void handleCollisions(Paddle leftPaddle, Paddle rightPaddle, Ball ball, ref int leftScore, ref int rightScore)
+        {
+            bool collided = true;
+            while (collided)
+            {
+                collided = false;
+                collided |= leftPaddle.willCollideWith(ball, ref leftScore);
+                collided |= rightPaddle.willCollideWith(ball, ref rightScore);
+                collided |= ball.willCollideWithBoundary();
+            }   
         }
         
         static void getHighscore(out int score, out string name)
@@ -140,9 +216,9 @@ namespace GameCollection.PongGame
         } 
         static void addScore(int score)
         {
+            getHighscore(out int maxScore, out string maxName);
             Console.OpenStandardInput().Flush();
             GameScreen.clearAll();
-            getHighscore(out int maxScore, out string maxName);
             
             GameScreen.newLine(7);
             GameScreen.writeText(maxScore < 0 ? "There is currently no high score" : $"The current highscore is {maxScore} by {maxName}");
@@ -206,44 +282,139 @@ namespace GameCollection.PongGame
             for (int i = 0; i < results.Count;)
             {
                 var result = results[i];
-                GameScreen.writeText($"{++i}) {result.score:D3} by {result.name} {result.date:dd/MM/yy}");
+                GameScreen.writeText($"{++i:D2}) {result.score:D3} by {result.name} {result.date:dd/MM/yy}");
             }
             
             GameScreen.newLine(3);
-            GameScreen.writeText("Press any key to continue...");
+            GameScreen.writeText("  Press any key to continue... ");
             Console.ReadKey(true);
         }
         static string mainMenu(ExitInfo exitInfo)
         {
             if (exitInfo.isNull) {}
             
-            if (exitInfo.naturalExit)
+            if (exitInfo.naturalExit)  
                 addScore(exitInfo.playerScore);
             
             GameScreen.clearAll();
             
             GameScreen.newLine(7);
-            GameScreen.writeText("Would you like to view the leaderboard? (Y/N)");
-            
-            if (Console.ReadKey(true).Key == ConsoleKey.Y)
-                leaderboardMenu();
-            
-            // <TEMP>
-            GameScreen.clearAll();
-            GameScreen.newLine(7);
-            GameScreen.writeText("Press any key to start a new game...");
-            Console.ReadKey(true);
-            return "StartGame";
-            // </TEMP>
-        }
-        static void loadingScreen()
-        {
-            Thread.Sleep(1000);
+            GameScreen.writeText("MAIN MENU");
+            GameScreen.newLine(4);
+            GameScreen.writeText(" Please select an option: ");
+            GameScreen.writeText("                          ");
+            GameScreen.writeText("  1)  View Leaderboard    ");
+            GameScreen.writeText("  2)  Single-Player Game  ");
+            GameScreen.writeText("  3)  Multi-Player Game   ");
+            GameScreen.writeText("                          ");
+            GameScreen.writeText("                          ");
+            GameScreen.writeText("                          ");
+            GameScreen.writeText("                          "); 
+            GameScreen.writeText("                          ");
+            GameScreen.writeText("  9)  Exit                ");
+
+            while (true)
+            {
+                switch (Console.ReadKey(true).Key)
+                {
+                    case ConsoleKey.D1:
+                        return "Leaderboard";
+                    case ConsoleKey.D2:
+                        return "StartGame";
+                    case ConsoleKey.D3:
+                        return "StartTwo";
+                    case ConsoleKey.D4:
+                    case ConsoleKey.D5:
+                    case ConsoleKey.D6:
+                    case ConsoleKey.D7:
+                    case ConsoleKey.D8:
+                        break;
+                    case ConsoleKey.D9:
+                        return "Exit";
+
+                }
+            }
         }
 
-        const double paddleSpeed = 0.0002;
-        static void getComputerInputs(Ball ball, Paddle paddle, out bool down, out bool stop)
+        static void title()
         {
+            GameScreen.clearAll();
+            
+            GameScreen.newLine(15);
+            GameScreen.writeText("                                                                      ");
+            GameScreen.writeText("  ████████      ██████████      ████        ██          ██████████    ");
+            GameScreen.writeText("  ██      ██        ██          ████        ██        ██          ██  ");
+            GameScreen.writeText("  ██        ██      ██          ██  ██      ██      ██                ");
+            GameScreen.writeText("  ██        ██      ██          ██  ██      ██      ██                ");
+            GameScreen.writeText("  ██      ██        ██          ██    ██    ██      ██                ");
+            GameScreen.writeText("  ████████          ██          ██    ██    ██      ██        ██████  ");
+            GameScreen.writeText("  ██                ██          ██      ██  ██      ██            ██  ");
+            GameScreen.writeText("  ██                ██          ██      ██  ██      ██            ██  ");
+            GameScreen.writeText("  ██                ██          ██        ████        ██          ██  ");
+            GameScreen.writeText("  ██            ██████████      ██          ██          ██████████    ");
+            GameScreen.writeText("                                                                      ");
+
+            while (Console.KeyAvailable)
+                Console.ReadKey(true);
+            
+            Thread.Sleep(500);
+            Console.ReadKey(true);
+        }
+        static async Task loadingScreen()
+        {
+            const double div = 500;
+            const double cut = 5000 / div;
+            const double end = 8250 / div;
+            const double rad = 0.2;
+            const double sep = 0.75;
+            const int wait = 100;
+            
+            IntegerCoord centre = (gameWidth / 2, gameHeight / 2);
+            
+            Thread.Sleep(500);
+            
+            if (debug) return;
+            
+            double t = 0;
+            Stopwatch sw = Stopwatch.StartNew(); 
+            while (true)
+            {
+                for (int i = 0; i < 3; i++)
+                    addPixel(circle(centre, rad, bunch(t + sep * i), cut));
+                
+                
+                await GameScreen.writeAsync();
+                GameScreen.setHight((int)(gameHeight * 0.2));
+                GameScreen.writeText(" Loading ");
+
+                int mil = (int)sw.ElapsedMilliseconds; 
+                if (wait - mil > 10)
+                    await Task.Delay(wait - (int)sw.ElapsedMilliseconds);
+                
+                t += sw.ElapsedMilliseconds / div;
+                sw.Restart();
+                if (t > end)
+                    break;
+            }
+
+            GameScreen.setHight((int)(gameHeight * 0.2));
+            GameScreen.writeText(" Loading ");
+            
+            Thread.Sleep(500);
+        }
+
+        const double stretch = 1.2;
+        static double bunch(double t) => t - 0.8 * Math.Cos(t);
+
+        static IntegerCoord circle(IntegerCoord centre, double radius, double t, double cut) =>
+            c(centre, radius - clamp(0, radius, Math.Pow((t - cut), 3) / 1000), t, cut);
+        static IntegerCoord c(IntegerCoord centre, double radius, double t, double cut) =>
+            centre + (snapToGrid(stretch * radius * Math.Cos(t)), snapToGrid(radius * Math.Sin(t)));
+        
+        const double paddleSpeed = 0.0002;
+        static void getComputerInputs(Ball ball, Paddle paddle, out bool down, out bool stop, out bool ignore)
+        {
+            ignore = false;
             Coord positionDiff = ball.currentPosition() - paddle.currentPosition();
             Coord velocityDiff = ball.currentVelocity() - paddle.currentVelocity();
 
@@ -258,15 +429,16 @@ namespace GameCollection.PongGame
             stop = abs(finalDiff) < paddleSpeed * t;
             down = finalDiff > 0;
         }
-        static void getHumanInputs(out bool ignore, out bool down, out bool stop, out bool exit)
+        static void getHumanInputs(out bool down, out bool stop, out bool ignore, out bool exit)
         {
             ignore = !Console.KeyAvailable;
             down = stop = exit = false;
 
             if (ignore) 
                 return;
-            
-            switch (Console.ReadKey(true).Key)
+
+            ConsoleKey key = Console.ReadKey(true).Key;
+            switch (key)
             {
                 case ConsoleKey.W:
                 case ConsoleKey.UpArrow:
@@ -277,17 +449,72 @@ namespace GameCollection.PongGame
                     break;
                 case ConsoleKey.A:
                 case ConsoleKey.D:
-                case ConsoleKey.RightArrow:
                 case ConsoleKey.LeftArrow:
+                case ConsoleKey.RightArrow:
                     stop = true;
                     break;
-                case ConsoleKey.Delete:
+                case ConsoleKey.Tab:
                 case ConsoleKey.Backspace:
                     exit = true;
                     break;
                 default:
                     ignore = true;
                     break;
+            }
+            
+            GameLog.log(key.ToString());
+        }
+
+        static void getHumanPairInputs(out bool leftDown, out bool rightDown, out bool leftStop, out bool rightStop,
+            out bool leftIgnore, out bool rightIgnore, out bool exit)
+        {
+            List<ConsoleKey> keys = new List<ConsoleKey>();
+            
+            leftDown = rightDown = false;
+            leftStop = rightStop = false;
+            leftIgnore = rightIgnore = false;
+            exit = false;
+            
+            while (Console.KeyAvailable)
+                keys.Add(Console.ReadKey(true).Key);
+
+            if (keys.Contains(ConsoleKey.W))
+            {
+                
+            }
+            else if (keys.Contains(ConsoleKey.S))
+            {
+                leftDown = true;
+            }
+            else if (keys.Contains(ConsoleKey.A) || keys.Contains(ConsoleKey.D))
+            {
+                leftStop = true;
+            }
+            else
+            {
+                leftIgnore = true;
+            }
+             
+            if (keys.Contains(ConsoleKey.UpArrow))
+            {
+                
+            }
+            else if (keys.Contains(ConsoleKey.DownArrow))
+            {
+                rightDown = true;
+            }
+            else if (keys.Contains(ConsoleKey.LeftArrow) || keys.Contains(ConsoleKey.RightArrow))
+            {
+                rightStop = true;
+            }
+            else
+            {
+                rightIgnore = true;
+            }
+
+            if (keys.Contains(ConsoleKey.Tab) || keys.Contains(ConsoleKey.Backspace))
+            {
+                exit = true;
             }
         }
         
@@ -305,11 +532,13 @@ namespace GameCollection.PongGame
             }
         }
 
+        static void addPixelAndKeep(IntegerCoord pos) => addPixelAndKeep(pos.x, pos.y);
         static void addPixelAndKeep(int x, int y)
         {
             GameScreen.queueAndKeep((2 * x + 2, y + 1), '\u2588');
             GameScreen.queueAndKeep((2 * x + 3, y + 1), '\u2588');
         }
+        static void addPixel(IntegerCoord pos) => addPixel(pos.x, pos.y);
         static void addPixel(int x, int y)
         {
             GameScreen.queue((2 * x + 2, y + 1), '\u2588');
