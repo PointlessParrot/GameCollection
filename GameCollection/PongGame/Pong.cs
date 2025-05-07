@@ -15,7 +15,7 @@ namespace GameCollection.PongGame
     {
         static Random rng = new Random();
 
-        const bool debug = true;
+        const bool debug = false;
         
         const double paddleOffset = 0.2;
         const int targetLoopTime = 50;
