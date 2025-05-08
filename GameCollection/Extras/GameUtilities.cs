@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using static GameCollection.Extras.UtilFunctions;
 
 namespace GameCollection.Extras
 {
@@ -38,7 +39,9 @@ namespace GameCollection.Extras
         public static Coord mul(Coord a, Coord b) => new Coord(a.x * b.x, a.y * b.y);
         public static Coord div(Coord a, Coord b) => new Coord(a.x / b.x, a.y / b.y);
         public static double abs(Coord a) => Math.Sqrt(a.x * a.x + a.y * a.y);
-            
+
+        public Coord rotate(double angle) => new Coord(x * Math.Cos(angle) - y * Math.Sin(angle), y * Math.Cos(angle) + x * Math.Sin(angle));
+        
         public static implicit operator Coord((double x, double y) a) => new Coord(a.x, a.y);
         public static implicit operator (double x, double y)(Coord a) => (a.x, a.y);
 
@@ -51,7 +54,9 @@ namespace GameCollection.Extras
         public int y;
             
         public IntegerCoord(int xIn, int yIn) => (x, y) = (xIn, yIn);
-            
+
+        public static IntegerCoord operator -(IntegerCoord a) => -1 * a;
+        
         public static IntegerCoord operator +(IntegerCoord a, IntegerCoord b) => new IntegerCoord(a.x + b.x, a.y + b.y);
         public static IntegerCoord operator -(IntegerCoord a, IntegerCoord b) => new IntegerCoord(a.x - b.x, a.y - b.y);
         public static IntegerCoord operator *(IntegerCoord a, int b) => new IntegerCoord(a.x * b, a.y * b);
@@ -67,12 +72,32 @@ namespace GameCollection.Extras
         public static implicit operator Coord(IntegerCoord a) => new Coord(a.x, a.y);
         public static explicit operator IntegerCoord(Coord a) => new IntegerCoord((int)a.x, (int)a.y);
 
+        public static IntegerCoord north => ( 0, +1);
+        public static IntegerCoord east  => (+1,  0);
+        public static IntegerCoord south => ( 0, -1);
+        public static IntegerCoord west  => (-1,  0);
+
+        public static IntegerCoord consoleNorth => -north;
+        public static IntegerCoord consoleEast  =>   east;
+        public static IntegerCoord consoleSouth => -south;
+        public static IntegerCoord consoleWest  =>   west;
+
+
+        public IntegerCoord rotateCW() => new IntegerCoord(y, -x);
+        public IntegerCoord rotateACW() => new IntegerCoord(-y, x);
+        public IntegerCoord rotate(int quarters) => rotateInternal(positiveMod(quarters, 4));
+        IntegerCoord rotateInternal(int quarters) =>
+            quarters < 1 ? this : quarters < 2 ? rotateACW() : quarters < 3 ? -this : rotateCW();  
+        
         public override string ToString() => $"({x}, {y})"; 
         public void Deconstruct(out int x, out int y)
         {
             x = this.x;
             y = this.y;
         }
+
+        public static bool operator ==(IntegerCoord a, IntegerCoord b) => a.x == b.x && a.y == b.y;
+        public static bool operator !=(IntegerCoord a, IntegerCoord b) => a.x != b.x || a.y != b.y;
 
         public bool Equals(IntegerCoord other)
         {

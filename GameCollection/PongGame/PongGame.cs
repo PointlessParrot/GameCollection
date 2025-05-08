@@ -6,12 +6,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using static GameCollection.Extras.UtilFunctions;
 using GameCollection.Extras; 
-using GameDatabase = GameCollection.Extras.NonSqlGameDatabase;
+using GameDatabase = GameCollection.Extras.SqlGameDatabase;
 
 
 namespace GameCollection.PongGame
 {
-    internal static partial class Pong
+    internal static partial class PongGame
     {
         static Random rng = new Random();
 

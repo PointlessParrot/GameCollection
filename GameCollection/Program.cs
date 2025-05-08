@@ -1,6 +1,6 @@
 ﻿using GameCollection.Extras;
 using GameCollection.PongGame;
-using Database = GameCollection.Extras.NonSqlGameDatabase;
+using Database = GameCollection.Extras.SqlGameDatabase;
 
 namespace GameCollection
 {
@@ -10,7 +10,7 @@ namespace GameCollection
         {
             GameLog.createLog();
             Database.setupConnection();
-            Pong.run().Wait();
+            PongGame.PongGame.run().Wait();
         }
     }
 }

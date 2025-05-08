@@ -4,7 +4,7 @@ using static GameCollection.Extras.UtilFunctions;
 
 namespace GameCollection.PongGame
 {
-    internal static partial class Pong
+    internal static partial class PongGame
     {
         struct ExitInfo
         {
